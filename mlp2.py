@@ -351,9 +351,9 @@ class MLP():
         else:
             n_layers, n_neurons, n_outputs, layer_types = layers_default
             tmp_layers = [LinearLayer(n_inputs=n_inputs, n_units=n_neurons, rng=rng, bias=bias, name='Linear_1')]
-            for nl in range(n_layers):
+            for nl in range(n_layers-1):
                 tmp_layers.append(layer_types(name='ActivationFunction_'+str(nl+1)))
-                nn = n_neurons if  nl+1 != n_layers else n_outputs
+                nn = n_neurons if  nl+2 != n_layers else n_outputs
                 tmp_layers.append(LinearLayer(n_inputs=n_neurons, n_units=nn, rng=rng, bias=bias, name='Linear_'+str(nl+2)))
             self.layers = tmp_layers
         self.batch_size = batch_size

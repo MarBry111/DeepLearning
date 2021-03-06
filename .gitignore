@@ -2,7 +2,6 @@
 *.zip
 *.pdf
 digit-recognizer/*
-*.ipynb
 project-1-part-1-data/*
 __pycache__/*
 
