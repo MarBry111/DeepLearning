@@ -19,52 +19,45 @@ class MuliLayerPerceptron:
         return 1 - t*t
     
     def ReLU(self, z):
-        if z > 0:
-            return np.ones(z.shape)
-        else:
-            return np.zeros(z.shape)
+    	z2 = z
+        z2[z2 < 0] = 0
+        return z2
     
-    def d_ReLU(self, z):
-        if z > 0:
-            return z
-        else:
-            return np.zeros(z.shape)
-        
-    def softplus(self, z):
-        return(np.log( 1 + ))
-    
-    def d_softplus(self, z):
-        s = self.sigma(z)
-        return s * (1 - s)
+    def d_ReLU(self, y):
+    	d = np.zeros(y.shape)
+        d[y>0] = 1
+        return d
     
     self.act_function_dict = {"sigma": self.sigma,
                               "tanh" : self.tanh,
-                              "ReLU" : self.ReLU, 
-                              "softplus" : self.softplus}
+                              "ReLU" : self.ReLU}
     
     self.d_act_function_dict = {"sigma": self.d_sigma,
                                 "tanh" : self.d_tanh,
-                                "ReLU" : self.d_ReLU, 
-                                "softplus" : self.d_softplus}
+                                "ReLU" : self.d_ReLU}
 
    	def mse(self, y, y_hat):
-   		loss = np.sum( (y - y_hat)**2 ) / y.shape[0]
+   		loss = np.sum( (y - y_hat)**2, axis = 1, keepdims = True) / y.shape[0]
    		return loss
 
    	def d_mse(self, y, y_hat):
-   		d = np.sum( 2 * (y - y_hat)) / y.shape[0]
+   		d = np.sum( 2 * (y - y_hat), axis = 1, keepdims = True) / y.shape[0]
    		return d
 
-	def softmax(self, y):
-	    exps = np.exp(y)
-	    return exps / np.sum(exps)
+	def softmax(self, z):
+		z1 = z - np.max(z, axis = 1, keepdims = True)
+        z2 = np.exp(z1)
+        z2 /= np.sum(z2, axis = 1, keepdims = True)
+        return z2
 
-	# TO DO Cross entropy
-	def cross_entropy(self, p, y_hat):
-	    q = self.softmax(y_hat)
-	   	
-	    loss = -np.sum(p * np.log(q))
-	    return loss
+	def cross_entropy(self, x, t):
+		"""
+		z - (n_samples, n_inputs), n_inputs is the same as the number of classes
+		"""
+		z = self.softmax(x)
+		z = np.log(z)
+        z2 = z[t>0]
+        return -z2.reshape(z2.shape[0],1)
 
 	def d_cross_entropy(self, p, y_hat):
 	    q = self.softmax(y_hat)
@@ -105,7 +98,7 @@ class MuliLayerPerceptron:
         self.epoches = epoches
         self.eta = eta
         self.momentum = momentum
-        self.loss_function = self.mse if problem_type else cross_entropy
+        self.loss_function = self.mse if problem_type else self.cross_entropy
         self.seed = seed
     
     def forward_pass(self, x):
@@ -114,7 +107,7 @@ class MuliLayerPerceptron:
         self.a = [last_a]
         
         for b, w in zip(self.biases, self.weights):
-            z = np.dot(w, last_a) + b
+            z = last_a.dot(w) + b 
             self.z.append(z)
             last_a = self.act_function(z)
             self.a.append(last_a)
