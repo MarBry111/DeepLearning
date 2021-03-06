@@ -198,7 +198,7 @@ class SigmaLayer():
             : array
             delta vector from this layer, shape (n_samples, n_inputs)
         """
-        d = np.exp(-X) / ( 1 + np.exp(-X) )**2
+        d = np.exp(-Y) / ( 1 + np.exp(-Y) )**2
         return d*delta_next
 
 
@@ -321,15 +321,17 @@ class LossCrossEntropyForSoftmaxLogits():
 # Multi Layer Perceptron
 
 class MLP():
-    def __init__(self, n_inputs, layers=None, layers_default=None, bias=True, batch_size=100, n_epochs=500, eta=0.5, momentum=0.5, classification=True, rng=None):
+    def __init__(self, rng, n_inputs, layers=None, layers_default=None, bias=True, batch_size=100, n_epochs=500, eta=0.5, momentum=0.5, classification=True):
         """
         Parameters
         ----------
+        rng: float
+            Random state
         n_inputs : int
         layers : list
             List of layers (if None then initialize all layers the same)
         layers_default: list
-            Parametrs of layers [n_layers, n_neurons, layer_types = activation_function]
+            Parametrs of layers [n_layers, n_neurons, n_outputs, layer_types = activation_function]
         bias : bool
             If bias should be used in network
         batch_size: int
@@ -342,18 +344,17 @@ class MLP():
             Value of momentum in range 0-1 to keep the same direction of learning
         classification: bool
             Determines if we are dealing with regression or classification
-        rng: float
-            Random state
         """
         self.n_inputs = n_inputs
         if layers is not None:
             self.layers = layers
         else:
-            n_layers, n_neurons, layer_types = layers_default
+            n_layers, n_neurons, n_outputs, layer_types = layers_default
             tmp_layers = [LinearLayer(n_inputs=n_inputs, n_units=n_neurons, rng=rng, bias=bias, name='Linear_1')]
             for nl in range(n_layers):
                 tmp_layers.append(layer_types(name='ActivationFunction_'+str(nl+1)))
-                tmp_layers.append(LinearLayer(n_inputs=n_inputs, n_units=n_neurons, rng=rng, bias=bias, name='Linear_'+str(nl+2)))
+                nn = n_neurons if  nl+1 != n_layers else n_outputs
+                tmp_layers.append(LinearLayer(n_inputs=n_neurons, n_units=nn, rng=rng, bias=bias, name='Linear_'+str(nl+2)))
             self.layers = tmp_layers
         self.batch_size = batch_size
         self.n_epochs = n_epochs
@@ -371,7 +372,7 @@ class MLP():
             self.loss=LossMeanSquareError(name='MSE')
             self.output_layers=[]
 
-        self.first_param_layer = layers[-1]
+        self.first_param_layer = self.layers[-1]
         for l in self.layers:
             if l.has_params():
                 self.first_param_layer = l
@@ -456,7 +457,7 @@ class MLP():
         return np.mean(p == t)
 
 
-    def train(self, X_train, T_train, batch_size=1, X_test=None, T_test=None, verbose=False):
+    def train(self, X_train, T_train, X_test=None, T_test=None, verbose=False):
         """
         Trains a network using vanilla gradient descent.
         Parameters
@@ -479,14 +480,14 @@ class MLP():
 
         def process_info(epoch):
             loss_test, acc_test = np.nan, np.nan
-            Y = net.propagate(X_train)
-            loss_train = net.loss.forward(Y, T_train)
+            Y = self.propagate(X_train)
+            loss_train = self.loss.forward(Y, T_train)
             acc_train = self.accuracy(Y, T_train)
             run_info['loss_train'].append(loss_train)
             run_info['acc_train'].append(acc_train)
             if X_test is not None:
-                Y = net.propagate(X_test)
-                loss_test = net.loss.forward(Y, T_test)
+                Y = self.propagate(X_test)
+                loss_test = self.loss.forward(Y, T_test)
                 acc_test = self.accuracy(Y, T_test)
                 run_info['loss_test'].append(loss_test)
                 run_info['acc_test'].append(acc_test)
@@ -497,7 +498,7 @@ class MLP():
         process_info('initial')
         
         initial_w = {}
-        for layer in net.layers:
+        for layer in self.layers:
                 if layer.has_params():
                     initial_w[layer.name] = np.mean(np.abs(layer.W))
 
@@ -507,15 +508,15 @@ class MLP():
                 last = min(offset + self.batch_size, n_samples)
                 if verbose:
                     print('.', end='')
-                grads = net.gradient(np.asarray(X_train[offset:last]), np.asarray(T_train[offset:last]))
-                for layer in net.layers:
+                grads = self.gradient(np.asarray(X_train[offset:last]), np.asarray(T_train[offset:last]))
+                for layer in self.layers:
                     if layer.has_params():
                         gs = grads[layer.name]
                         dtheta = [-self.eta * g for g in gs]
                         layer.update_params(dtheta)
 
                 offset += self.batch_size
-            for layer in net.layers:
+            for layer in self.layers:
                 if layer.has_params():
                     mean_weight = np.mean(np.abs(layer.W))
                     run_info[layer.name].append(mean_weight/initial_w[layer.name])
