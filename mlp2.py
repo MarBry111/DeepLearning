@@ -289,7 +289,7 @@ class LossMeanSquareError():
         """
         Forward message.
         """
-        X2 = np.sum( (X - Y) ** 2, axis = 1, keepdims = True)
+        X2 = np.sum( (X - Y) ** 2, axis = 1, keepdims = True) / X.shape[1]
         return X2
 
 
@@ -297,7 +297,7 @@ class LossMeanSquareError():
         """
         Computes delta vector for the output layer.
         """
-        d = -2 * np.sum( (X - Y), axis = 1, keepdims = True)
+        d = -2 * np.sum( (X - Y), axis = 1, keepdims = True) / X.shape[1]
         return d
 
 
@@ -419,7 +419,7 @@ class MLP():
         """
         return self.loss.forward(self.propagate(X, output_layers=False), T)
 
-    def gradient(self, X, T):
+    def gradient(self, X, T, prev_grad):
         """
         Computes gradient of loss w.r.t. all network parameters.
         Parameters
@@ -428,6 +428,8 @@ class MLP():
             input data, shape (n_samples, n_inputs)
         T : array 
             target labels, shape (n_samples, n_outputs)
+        prev_grad: array
+            previous gradient [for momentum]
         Return
         ----------
          : dict
@@ -445,10 +447,12 @@ class MLP():
         Y = X[-1]
         for l, x in zip( reversed(lay), reversed(X[:-1])):
             if l.has_params():
-                out[l.name] = l.grad(x, d)
+                dW, db = l.grad(x, d)
+                dW = dW * (1 - self.momentum) + prev_grad[l.name][0] * self.momentum
+                db = db * (1 - self.momentum) + prev_grad[l.name][1] * self.momentum
+                out[l.name] = [dW, db]
             d = l.delta(Y, d)
             Y = x
-
         return out
 
     def accuracy(self, Y, T):
@@ -498,9 +502,11 @@ class MLP():
         process_info('initial')
         
         initial_w = {}
+        grads = {}
         for layer in self.layers:
                 if layer.has_params():
                     initial_w[layer.name] = np.mean(np.abs(layer.W))
+                    grads[layer.name] = [np.zeros(layer.W.shape), np.zeros(layer.b.shape)]
 
         for epoch in range(1, self.n_epochs + 1):
             offset = 0
@@ -508,7 +514,7 @@ class MLP():
                 last = min(offset + self.batch_size, n_samples)
                 if verbose:
                     print('.', end='')
-                grads = self.gradient(np.asarray(X_train[offset:last]), np.asarray(T_train[offset:last]))
+                grads = self.gradient(np.asarray(X_train[offset:last]), np.asarray(T_train[offset:last]), grads)
                 for layer in self.layers:
                     if layer.has_params():
                         gs = grads[layer.name]
