@@ -23,7 +23,6 @@ class LinearLayer():
             Apperance of bias
         name: str
         """
-        super(LinearLayer, self).__init__()
         self.n_inputs = n_inputs
         self.n_units = n_units
         self.rng = rng
@@ -118,7 +117,6 @@ class LinearLayer():
 
 class ReLULayer():
     def __init__(self, name):
-        super(ReLULayer, self).__init__()
         self.name = name
 
     def has_params(self):
@@ -162,7 +160,6 @@ class ReLULayer():
 
 class SigmaLayer():
     def __init__(self, name):
-        super(SigmaLayer, self).__init__()
         self.name = name
 
     def has_params(self):
@@ -204,7 +201,6 @@ class SigmaLayer():
 
 class SoftmaxLayer():
     def __init__(self, name):
-        super(SoftmaxLayer, self).__init__()
         self.name = name
 
     def has_params(self):
@@ -238,7 +234,6 @@ class SoftmaxLayer():
 
 class LossCrossEntropy():
     def __init__(self, name):
-        super(LossCrossEntropy, self).__init__()
         self.name = name
 
     def forward(self, X, T):
@@ -282,7 +277,6 @@ class LossCrossEntropy():
 # CHECK
 class LossMeanSquareError():
     def __init__(self, name):
-        super(LossMeanSquareError, self).__init__()
         self.name = name
 
     def forward(self, X, Y):
@@ -297,13 +291,12 @@ class LossMeanSquareError():
         """
         Computes delta vector for the output layer.
         """
-        d = -2 * np.sum( (X - Y), axis = 1, keepdims = True) / X.shape[1]
+        d = 2 * np.sum( (X - T), axis = 1, keepdims = True) / X.shape[1]
         return d
 
 
 class LossCrossEntropyForSoftmaxLogits():
     def __init__(self, name):
-        super(LossCrossEntropyForSoftmaxLogits, self).__init__()
         self.name = name
 
     def forward(self, X, T):
@@ -365,6 +358,7 @@ class MLP():
         #    Loss funtion layer
         # output_layers: list
         #    List of layers append to "layers" in eval. phase (not used in traingin phase)
+        self.classification = classification
         if classification:
             self.loss=LossCrossEntropyForSoftmaxLogits(name='CE')
             self.output_layers=[SoftmaxLayer(name='Softmax_OUT')]
@@ -486,29 +480,39 @@ class MLP():
             loss_test, acc_test = np.nan, np.nan
             Y = self.propagate(X_train)
             loss_train = self.loss.forward(Y, T_train)
-            acc_train = self.accuracy(Y, T_train)
+            if self.classification:
+                acc_train = self.accuracy(Y, T_train)
+                run_info['acc_train'].append(acc_train)
             run_info['loss_train'].append(loss_train)
-            run_info['acc_train'].append(acc_train)
             if X_test is not None:
                 Y = self.propagate(X_test)
                 loss_test = self.loss.forward(Y, T_test)
-                acc_test = self.accuracy(Y, T_test)
+                if self.classification:
+                    acc_test = self.accuracy(Y, T_test)
                 run_info['loss_test'].append(loss_test)
                 run_info['acc_test'].append(acc_test)
-            if verbose:
+            
+            if self.classification:
                 print('epoch: {}, loss: {}/{} accuracy: {}/{}'.format(epoch, np.mean(loss_train), np.nanmean(loss_test),
-                                                                      np.nanmean(acc_train), np.nanmean(acc_test)))
+                                                                    np.nanmean(acc_train), np.nanmean(acc_test)))
+            else:
+                print('epoch: {}, loss: {}/{}'.format(epoch, np.mean(loss_train), np.nanmean(loss_test)))
 
         process_info('initial')
         
         initial_w = {}
         grads = {}
+        epoch_grad_size = defaultdict(list)
         for layer in self.layers:
-                if layer.has_params():
-                    initial_w[layer.name] = np.mean(np.abs(layer.W))
-                    grads[layer.name] = [np.zeros(layer.W.shape), np.zeros(layer.b.shape)]
+            if layer.has_params():
+                initial_w[layer.name] = np.mean(np.abs(layer.W))
+                grads[layer.name] = [np.zeros(layer.W.shape), np.zeros(layer.b.shape)]
 
         for epoch in range(1, self.n_epochs + 1):
+            for layer in self.layers:
+                    if layer.has_params():
+                        epoch_grad_size[layer.name] = [np.zeros(layer.W.shape), np.zeros(layer.b.shape)]
+
             offset = 0
             while offset < n_samples:
                 last = min(offset + self.batch_size, n_samples)
@@ -518,14 +522,19 @@ class MLP():
                 for layer in self.layers:
                     if layer.has_params():
                         gs = grads[layer.name]
+                        epoch_grad_size[layer.name] += [[np.abs(gs[0]), np.abs(gs[1])]]
                         dtheta = [-self.eta * g for g in gs]
                         layer.update_params(dtheta)
 
                 offset += self.batch_size
+
             for layer in self.layers:
                 if layer.has_params():
                     mean_weight = np.mean(np.abs(layer.W))
-                    run_info[layer.name].append(mean_weight/initial_w[layer.name])
+                    run_info[f'{layer.name}_mean_weight'].append(mean_weight/initial_w[layer.name])
+                    mean_grad_W = np.mean([i[0] for i in epoch_grad_size[layer.name]])
+                    run_info[f'{layer.name}_mean_update'].append(np.mean(mean_grad_W))
+
             if verbose:
                 print()
             process_info(epoch)
