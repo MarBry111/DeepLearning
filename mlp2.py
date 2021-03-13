@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 from collections import defaultdict
 import gzip
@@ -158,6 +159,47 @@ class ReLULayer():
         return d*delta_next
 
 
+class TanhLayer():
+    def __init__(self, name):
+        self.name = name
+
+    def has_params(self):
+        return False
+
+    def forward(self, X):
+        """
+        Forward message.
+        Parameters
+        ----------
+        X : array
+            layer inputs, shape (n_samples, n_inputs)
+        Return
+        ----------
+            : array 
+            layer output, shape (n_samples, n_units)
+        """
+        X2 = 2 / (1 + np.exp(-2 * X)) - 1
+        return X2
+
+    def delta(self, Y, delta_next):
+        """
+        Computes delta (dl/d(layer inputs)), based on delta from the following layer. The computations involve backward
+        message.
+        Parameters
+        ----------
+        Y : array
+            output of this layer (i.e., input of the next), shape (n_samples, n_units)
+        delta_next : array
+            delta vector backpropagated from the following layer, shape (n_samples, n_units)
+        Return
+        ----------
+            : array
+            delta vector from this layer, shape (n_samples, n_inputs)
+        """
+        d = 1 - (2 / (1 + np.exp(-2 * Y)) - 1) ** 2
+        return d*delta_next
+
+
 class SigmaLayer():
     def __init__(self, name):
         self.name = name
@@ -232,6 +274,7 @@ class SoftmaxLayer():
         d = np.sum(d, axis=-1)
         return d
 
+
 class LossCrossEntropy():
     def __init__(self, name):
         self.name = name
@@ -274,7 +317,7 @@ class LossCrossEntropy():
         d = T/X
         return -d
 
-# CHECK
+
 class LossMeanSquareError():
     def __init__(self, name):
         self.name = name
@@ -283,7 +326,7 @@ class LossMeanSquareError():
         """
         Forward message.
         """
-        X2 = np.sum( (X - Y) ** 2, axis = 1, keepdims = True) / X.shape[1]
+        X2 = np.sum( (X - Y) ** 2) / X.shape[0]
         return X2
 
 
@@ -291,7 +334,29 @@ class LossMeanSquareError():
         """
         Computes delta vector for the output layer.
         """
-        d = 2 * np.sum( (X - T), axis = 1, keepdims = True) / X.shape[1]
+        d = 2 * np.sum( (X - T), axis = 1, keepdims = True) / X.shape[0]
+        return d
+
+
+class LossMeanAbsoluteError():
+    def __init__(self, name):
+        self.name = name
+
+    def forward(self, X, Y):
+        """
+        Forward message.
+        """
+        X2 = np.sum(np.abs(X - Y)) / X.shape[0]
+        return X2
+
+
+    def delta(self, X, T):
+        """
+        Computes delta vector for the output layer.
+        """
+        d = np.zeros(T.shape)
+        d[X > T] = 1 / X.shape[0]
+        d[X <= T] = -1 / X.shape[0]
         return d
 
 
@@ -314,7 +379,7 @@ class LossCrossEntropyForSoftmaxLogits():
 # Multi Layer Perceptron
 
 class MLP():
-    def __init__(self, rng, n_inputs, layers=None, layers_default=None, bias=True, batch_size=100, n_epochs=500, eta=0.5, momentum=0.5, classification=True):
+    def __init__(self, rng, n_inputs, layers=None, layers_default=None, bias=True, batch_size=100, n_epochs=500, eta=0.5, momentum=0.5, classification=True, loss=None, output_layer=None):
         """
         Parameters
         ----------
@@ -337,6 +402,8 @@ class MLP():
             Value of momentum in range 0-1 to keep the same direction of learning
         classification: bool
             Determines if we are dealing with regression or classification
+        loss:
+            Which loss to use. Overrides classification flag effect.
         """
         self.n_inputs = n_inputs
         if layers is not None:
@@ -353,18 +420,17 @@ class MLP():
         self.n_epochs = n_epochs
         self.eta = eta
         self.momentum = momentum
-        # depends on problem type
-        # loss : layer
-        #    Loss funtion layer
-        # output_layers: list
-        #    List of layers append to "layers" in eval. phase (not used in traingin phase)
         self.classification = classification
-        if classification:
-            self.loss=LossCrossEntropyForSoftmaxLogits(name='CE')
-            self.output_layers=[SoftmaxLayer(name='Softmax_OUT')]
+        if loss:
+            self.loss = loss
+            self.output_layers = [output_layer] if output_layer else []
         else:
-            self.loss=LossMeanSquareError(name='MSE')
-            self.output_layers=[]
+            if classification:
+                self.loss = LossCrossEntropyForSoftmaxLogits(name='CE')
+                self.output_layers = [SoftmaxLayer(name='Softmax_OUT')]
+            else:
+                self.loss = LossMeanSquareError(name='MSE')
+                self.output_layers = []
 
         self.first_param_layer = self.layers[-1]
         for l in self.layers:
@@ -492,11 +558,12 @@ class MLP():
                 run_info['loss_test'].append(loss_test)
                 run_info['acc_test'].append(acc_test)
             
-            if self.classification:
-                print('epoch: {}, loss: {}/{} accuracy: {}/{}'.format(epoch, np.mean(loss_train), np.nanmean(loss_test),
-                                                                    np.nanmean(acc_train), np.nanmean(acc_test)))
-            else:
-                print('epoch: {}, loss: {}/{}'.format(epoch, np.mean(loss_train), np.nanmean(loss_test)))
+            if verbose:
+                if self.classification:
+                    print('epoch: {}, loss: {}/{} accuracy: {}/{}'.format(epoch, np.mean(loss_train), np.nanmean(loss_test),
+                                                                        np.nanmean(acc_train), np.nanmean(acc_test)))
+                else:
+                    print('epoch: {}, loss: {}/{}'.format(epoch, np.mean(loss_train), np.nanmean(loss_test)))
 
         process_info('initial')
         
@@ -508,7 +575,7 @@ class MLP():
                 initial_w[layer.name] = np.mean(np.abs(layer.W))
                 grads[layer.name] = [np.zeros(layer.W.shape), np.zeros(layer.b.shape)]
 
-        for epoch in range(1, self.n_epochs + 1):
+        for epoch in tqdm(range(1, self.n_epochs + 1)):
             for layer in self.layers:
                     if layer.has_params():
                         epoch_grad_size[layer.name] = [np.zeros(layer.W.shape), np.zeros(layer.b.shape)]
@@ -516,8 +583,6 @@ class MLP():
             offset = 0
             while offset < n_samples:
                 last = min(offset + self.batch_size, n_samples)
-                if verbose:
-                    print('.', end='')
                 grads = self.gradient(np.asarray(X_train[offset:last]), np.asarray(T_train[offset:last]), grads)
                 for layer in self.layers:
                     if layer.has_params():
@@ -535,8 +600,6 @@ class MLP():
                     mean_grad_W = np.mean([i[0] for i in epoch_grad_size[layer.name]])
                     run_info[f'{layer.name}_mean_update'].append(np.mean(mean_grad_W))
 
-            if verbose:
-                print()
             process_info(epoch)
         return run_info
 
