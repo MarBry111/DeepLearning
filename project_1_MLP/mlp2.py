@@ -375,6 +375,31 @@ class LossCrossEntropyForSoftmaxLogits():
         X2 = X - T
         return X2
 
+class LossKLDivergence():
+    def __init__(self, name):
+        self.name = name
+
+    def forward(self, X, T):
+        Y = np.sum( T[T>0] * np.log(T[T>0] / X[T>0])).reshape(-1,1)
+        return Y
+
+    def delta(self, X, T):
+        X2 = - T/X
+        return X2
+
+class LossHinge():
+    def __init__(self, name):
+        self.name = name
+
+    def forward(self, X, T):
+        Y = np.max(1 - T*X, axis = 1, keepdims = True)
+        Y[Y<0] = 0
+        return Y
+
+    def delta(self, X, T):
+        d = -T
+        d[T*X>1] = 0
+        return d
 
 # Multi Layer Perceptron
 
